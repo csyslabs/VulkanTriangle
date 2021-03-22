@@ -3,8 +3,10 @@
 // system
 #include <Windows.h>
 #include <cstdint>
+#include <stdexcept>
 
 // Graphic
+#include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 
 // Lib
@@ -15,3 +17,5 @@
 #endif
 
 #pragma comment(lib, "Legacy\\lib\\legacy_stdio_definitions.lib")
+
+#pragma comment(lib, "vulkan\\Lib\\vulkan-1.lib")

@@ -4,6 +4,8 @@
 #include <Windows.h>
 #include <cstdint>
 #include <stdexcept>
+#include <vector>
+#include <optional>
 
 // Graphic
 #include <vulkan/vulkan.h>

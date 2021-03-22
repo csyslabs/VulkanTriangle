@@ -27,6 +27,7 @@ private:
     void initVulkan() {
         createInstance();
         createSurface();
+        pickPhysicalDevice();
     }
 
     void mainLoop() {
@@ -77,6 +78,79 @@ private:
             throw std::runtime_error("Failed to create window surface!");
     }
 
+    void pickPhysicalDevice() {
+        // 获取设备数量
+        uint32_t deviceCount = 0;
+        vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+        if (deviceCount == 0)
+            throw std::runtime_error("Failed to find GPUs with Vulkan support!");
+
+        // 获取所有可用的设备
+        std::vector<VkPhysicalDevice> devices(deviceCount);
+        vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+
+        // 选取一个合适的设备
+        for (const auto& device : devices) {
+            // 查询物理设备属性
+            VkPhysicalDeviceProperties deviceProperties;
+            vkGetPhysicalDeviceProperties(device, &deviceProperties);
+            // 选择集显
+            bool integratedGraphicsCard = deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+            // 查询合适的队列族
+            std::optional<uint32_t> queueFamily = findQueueFamily(device);
+            bool queueFamilySupported = queueFamily.has_value();
+            // 查询交换链支持
+            std::string swapchainExtensionName = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+            uint32_t extensionCount;
+            vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
+            std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+            vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
+            bool swapchainExtensionSupported = false;
+            for (auto properties : availableExtensions)
+                if (properties.extensionName == swapchainExtensionName)
+                    swapchainExtensionSupported = true;
+            bool swapchainSupported = false;
+            if (swapchainExtensionSupported) {
+                uint32_t formatCount;
+                uint32_t presentModeCount;
+                vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+                vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+                swapchainSupported = formatCount && presentModeCount;
+            }
+            // 选择具有合适的队列族且支持交换链的集显
+            if (integratedGraphicsCard && queueFamilySupported && swapchainSupported) {
+                physicalDevice = device;
+                break;
+            }
+        }
+        if (physicalDevice == VK_NULL_HANDLE)
+            throw std::runtime_error("Failed to find a suitable GPU!");
+    }
+
+    // 获取一个同时支持 图形命令 且支持我们的 窗体表面 的队列族
+    // 注意到uint32_t的任何取值都有可能是一个真实存在的队列族索引
+    // 因此我们使用std::optional来处理获取失败的情况
+    std::optional<uint32_t> findQueueFamily(VkPhysicalDevice device) {
+        // 获取所有的队列族
+        uint32_t queueFamilyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+        std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+        // 选取队列族
+        for (int i = 0; i < queueFamilies.size(); i++) {
+            // 支持表面
+            VkBool32 presentSupport = false;
+            vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+            // 支持图形命令
+            VkBool32 graphicsSupport = queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT;
+            if (graphicsSupport && presentSupport)
+                return i;
+        }
+        return std::optional<uint32_t>();
+    }
+
+
+
 private:
     GLFWwindow* window;
 
@@ -85,6 +159,9 @@ private:
 
     // 窗体表面实例
     VkSurfaceKHR surface;
+
+    // 物理设备对象
+    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 };
 
 

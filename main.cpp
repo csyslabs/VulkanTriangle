@@ -28,6 +28,7 @@ private:
         createInstance();
         createSurface();
         pickPhysicalDevice();
+        createLogicalDevice();
     }
 
     void mainLoop() {
@@ -37,6 +38,7 @@ private:
     }
 
     void cleanup() {
+        vkDestroyDevice(device, nullptr);
         vkDestroySurfaceKHR(instance, surface, nullptr);
         vkDestroyInstance(instance, nullptr);
 
@@ -149,6 +151,35 @@ private:
         return std::optional<uint32_t>();
     }
 
+    void createLogicalDevice() {
+        uint32_t queueFamilyIndex = findQueueFamily(physicalDevice).value();
+
+        // 创建逻辑设备，需要一个队列创建信息
+        // 结构体，描述了对于一个队列族我们需要创建的队列数量以及各自的优先级
+        VkDeviceQueueCreateInfo queueCreateInfo = {};                           
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueFamilyIndex = queueFamilyIndex;
+        queueCreateInfo.queueCount = 1;
+        float queuePriority = 1.0f;
+        queueCreateInfo.pQueuePriorities = &queuePriority;
+
+        // 还需要物理设备特性s
+        // 同样也是通过结构体传入
+        VkPhysicalDeviceFeatures deviceFeatures = {};
+        VkDeviceCreateInfo createInfo = {};
+        createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        createInfo.queueCreateInfoCount = 1;
+        createInfo.pQueueCreateInfos = &queueCreateInfo;
+        createInfo.pEnabledFeatures = &deviceFeatures;
+        const std::vector<const char*> extensionNames = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+        createInfo.enabledExtensionCount = static_cast<uint32_t>(extensionNames.size());
+        createInfo.ppEnabledExtensionNames = extensionNames.data(); // 启用支持交换链的拓展
+        if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS)    // 创建逻辑设备
+            throw std::runtime_error("failed to create logical device");
+        // 在创建逻辑设备的同时，会根据传入的队列创建信息创建相应队列
+        // 我们取回这个队列的句柄
+        vkGetDeviceQueue(device, queueFamilyIndex, 0, &graphicsAndPresentQueue);    //逻辑设备、队列族索引、队列索引、用于存储队列句柄的变量的指针
+    }
 
 
 private:
@@ -162,6 +193,11 @@ private:
 
     // 物理设备对象
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+
+    // 逻辑设备对象
+    VkDevice device;
+
+    VkQueue graphicsAndPresentQueue;
 };
 
 

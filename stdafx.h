@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <vector>
 #include <optional>
+#include <math.h>
 
 // Graphic
 #include <vulkan/vulkan.h>

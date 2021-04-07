@@ -29,6 +29,7 @@ private:
         createSurface();
         pickPhysicalDevice();
         createLogicalDevice();
+        createSwapchain();
     }
 
     void mainLoop() {
@@ -38,6 +39,7 @@ private:
     }
 
     void cleanup() {
+        vkDestroySwapchainKHR(device, swapchain, nullptr);
         vkDestroyDevice(device, nullptr);
         vkDestroySurfaceKHR(instance, surface, nullptr);
         vkDestroyInstance(instance, nullptr);
@@ -140,7 +142,7 @@ private:
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
         // 选取队列族
         for (int i = 0; i < queueFamilies.size(); i++) {
-            // 支持表面
+            // 支持表面（展示）
             VkBool32 presentSupport = false;
             vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
             // 支持图形命令
@@ -181,6 +183,89 @@ private:
         vkGetDeviceQueue(device, queueFamilyIndex, 0, &graphicsAndPresentQueue);    //逻辑设备、队列族索引、队列索引、用于存储队列句柄的变量的指针
     }
 
+    void createSwapchain() {
+        // 选取表面格式
+        uint32_t formatCount;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr);
+        /*
+        typedef struct VkSurfaceFormatKHR {
+            VkFormat           format;      // 颜色通道和类型
+            VkColorSpaceKHR    colorSpace;  // 颜色空间  是否支持SRGB的
+        } VkSurfaceFormatKHR;
+        */
+        std::vector<VkSurfaceFormatKHR> formats(formatCount);
+        // 查询显卡支持的表面格式
+        vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, formats.data());
+        VkSurfaceFormatKHR formatChosen = formats[0];
+        for (const auto& availableFormat : formats) {
+            if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) { // RGBA颜色格式 && SRGB颜色空间 
+                formatChosen = availableFormat;
+                break;
+            }
+        }
+
+        // 选取展示模式
+        VkPresentModeKHR presentModeChosen = VK_PRESENT_MODE_FIFO_KHR;
+
+        // 选择交换范围
+        // 通过 VkSurfaceCapabilitiesKHR 获取图像宽高
+        /*
+         * typedef struct VkSurfaceCapabilitiesKHR {
+                uint32_t                         minImageCount;
+                uint32_t                         maxImageCount;
+                VkExtent2D                       currentExtent;
+                VkExtent2D                       minImageExtent;
+                VkExtent2D                       maxImageExtent;
+                uint32_t                         maxImageArrayLayers;
+                VkSurfaceTransformFlagsKHR       supportedTransforms;
+                VkSurfaceTransformFlagBitsKHR    currentTransform;
+                VkCompositeAlphaFlagsKHR         supportedCompositeAlpha;
+                VkImageUsageFlags                supportedUsageFlags;
+        } VkSurfaceCapabilitiesKHR;
+        */
+        // 其中， VkExtent2D表示当前窗口分辨率
+        VkSurfaceCapabilitiesKHR capabilities;
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &capabilities);
+        VkExtent2D actualExtent = capabilities.currentExtent;
+        // 有的窗体管理器可能不太一样，它们允许我们指定不同的值。这种情况下，表示当前窗体分辨率的成员currentExtent中的高和宽都是uint32_t的最大值，我们需要通过minImageExtent和maxImageExtent来选择一个合适的交换范围。???
+        if (capabilities.currentExtent.width == UINT32_MAX) {
+            actualExtent = { WIDTH, HEIGHT };
+            actualExtent.width = max(capabilities.minImageExtent.width, min(capabilities.maxImageExtent.width, actualExtent.width));
+            actualExtent.height = max(capabilities.minImageExtent.height, min(capabilities.maxImageExtent.height, actualExtent.height));
+        }
+
+        // 创建交换链
+        // 定义一个结构体
+        VkSwapchainCreateInfoKHR createInfo = {};
+        createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        createInfo.surface = surface;
+        createInfo.minImageCount = capabilities.minImageCount;
+        createInfo.imageFormat = formatChosen.format;
+        createInfo.imageColorSpace = formatChosen.colorSpace;
+        createInfo.imageExtent = actualExtent;
+        createInfo.imageArrayLayers = 1;                                // 如果不创建三维应用
+        createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;    // 直接渲染到图像上，作为颜色附着
+        // 共享模式指定了图像在不同队列之间传递规则，比如说如果我们的图形队列跟展示队列不是同一个队列，我们就需要通过图形队列在交换链中的图像上渲染，再在展示队列上提交它们，这就需要图像在不同队列中共享
+        createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;        // 指定颜色的共享模式
+        createInfo.preTransform = capabilities.currentTransform;        // 指定交换链中图形的变换
+        createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;  // Alpha通道不用于跟窗体系统中的其他窗体进行混合
+        createInfo.presentMode = presentModeChosen;                     
+        createInfo.clipped = VK_TRUE;                                   // 指定剪裁为否，即不考虑被遮挡的窗体像素颜色
+        createInfo.oldSwapchain = VK_NULL_HANDLE;                       // oldSwapChain: 当交换链被废弃的时候（例如窗体尺寸改变），老的交换链在这里传递给新的交换链。此处不做设置，仅有一个交换链
+
+        if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapchain)) // 创建交换链
+            throw std::runtime_error("failed to create swapchain!");
+
+        uint32_t imageCount;
+        vkGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr);
+        swapchainImages.resize(imageCount);
+        vkGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data());
+
+        // 保存交换链选取的格式和范围
+        swapchainImageFormat = formatChosen.format;
+        swapchainExtent = actualExtent;
+    }
+
 
 private:
     GLFWwindow* window;
@@ -198,6 +283,16 @@ private:
     VkDevice device;
 
     VkQueue graphicsAndPresentQueue;
+
+    // 交换链
+    VkSwapchainKHR swapchain;
+
+    // (取回)交换链中图像的句柄数组
+    std::vector<VkImage> swapchainImages;
+
+    // 交换链选取的格式和范围
+    VkFormat swapchainImageFormat;
+    VkExtent2D swapchainExtent;
 };
 
 
